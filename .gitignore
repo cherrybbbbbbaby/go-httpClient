@@ -1,0 +1,61 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+
+#Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+ 
+#C/C++
+*.d
+*.obj
+*.tlog
+*.lastbuildstate
+*.idb
+*.pdb
+*.swp
+ 
+#Python
+*.py[cod]
+*.so
+*.egg
+*.egg-info
+dist
+build
+ 
+#Java
+*.class
+
+ 
+#generated files
+bin/
+gen/
+ 
+#Eclipse Project Files
+.classpath
+.project
+.settings/
+ 
+#IntelliJ IDEA Files
+*.iml
+*.ipr
+*.iws
+*.idea
+ 
+*.log
+.target/
+*.md
+*.lock
+*.json
+
+/target/
+
+help.md
+wvnw
+wvnw.cmd
