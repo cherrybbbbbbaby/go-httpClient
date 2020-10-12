@@ -55,6 +55,17 @@ type Request struct {
 	Url          string
 	Body         io.Reader
 	Port         string
+
+	ResponseChan     chan Response
+	TimeoutChan      chan int
+	WriteTimeoutChan chan int
+	ReadTimeoutChan  chan int
+}
+
+type Response struct {
+	Code string
+	Err  error
+	Data string
 }
 
 //初始化请求对象
@@ -68,7 +79,14 @@ func NewRequest() Request {
 	return request
 }
 
-func (r *Request) doRequest() (string, error) {
+func (r *Request) doRequest() {
+	//初始化结果
+	resp := Response{
+		Code: "",
+		Err:  nil,
+		Data: "",
+	}
+
 	//初始化http协议
 	httpProtocol := HttpProtocol{
 		Method:          r.Method,
@@ -96,7 +114,9 @@ func (r *Request) doRequest() (string, error) {
 		} else if splitUrl[0] == "https" {
 			r.Port = "443"
 		} else {
-			return "", errors.New("非http协议")
+			resp.Err = errors.New("非http协议")
+			r.ResponseChan <- resp
+			return
 		}
 		url = strings.Split(splitUrl[1], "/")
 	} else {
@@ -129,7 +149,9 @@ func (r *Request) doRequest() (string, error) {
 	defer conn.Close()
 	if err != nil {
 		log.Fatal(err)
-		return "", err
+		resp.Err = err
+		r.ResponseChan <- resp
+		return
 	}
 	//请求
 	conn.Write(data)
@@ -139,19 +161,24 @@ func (r *Request) doRequest() (string, error) {
 	read, err := io.Copy(buffer, conn)
 	println("copy :", read)
 	if err != nil {
-		return "", err
+		resp.Err = err
+		r.ResponseChan <- resp
+		return
 	}
-	resp := string(buffer.Bytes())
+	resp.Data = string(buffer.Bytes())
 
 	//解析状态 非200状态返回error
-	i := strings.Index(resp, "\r\n")
-	status := resp[:i]
+	i := strings.Index(resp.Data, "\r\n")
+	status := resp.Data[:i]
 	err = nil
 	statusSplit := strings.Split(status, " ")
 	if statusSplit[1] != "200" {
 		err = errors.New(status)
 	}
-	return resp, err
+	resp.Code = statusSplit[1]
+	resp.Err = err
+	r.ResponseChan <- resp
+	return
 }
 
 func (r *Request) SetHeader(key, value string) {
@@ -161,6 +188,7 @@ func (r *Request) SetHeader(key, value string) {
 func (r *Request) Get(url string) (string, error) {
 	r.Method = "GET"
 	r.Url = url
+	go r.doRequest()
 	return r.doRequest()
 }
 
@@ -168,6 +196,8 @@ func (r *Request) Head(url string) error {
 	r.Method = "HEAD"
 	r.Url = url
 	_, err := r.doRequest()
+	//todo 实现超时逻辑
+	timeoutChan := make(chan int)
 	return err
 }
 
@@ -180,7 +210,7 @@ func (r *Request) Post(url string, body io.Reader) (string, error) {
 
 func (r *Request) SetTimeout(timeout time.Duration) {
 	//todo
-
+	r.Timeout = timeout
 }
 func (r *Request) SetWriteTimeout(timeout time.Duration) {
 	//todo
