@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,17 +21,7 @@ type HttpClient interface {
 	Post(url string, body io.Reader) (string, error)
 }
 
-type Error struct {
-	msg string
-}
-
-func (e *Error) Error() string {
-	return e.msg
-}
-
-type HttpClientImpl struct {
-}
-
+//HTTP协议
 type HttpProtocol struct {
 	Method          string
 	Url             string
@@ -39,20 +30,22 @@ type HttpProtocol struct {
 	Body            string
 }
 
+//协议转字节数组
 func (h *HttpProtocol) toBytes() []byte {
 	line := "%s %s %s\r\n" //请求行
 	line = fmt.Sprintf(line, h.Method, h.Url, h.ProtocolVersion)
-	headers := ""
+	headers := "" //header
 	for k, v := range h.Headers {
 		header := k + ": " + v + "\r\n"
 		headers += header
 	}
 	headers += "\r\n"
 
-	msg := line + headers + h.Body
+	msg := line + headers + h.Body + "\r\n\r\n" //拼接
 	return []byte(msg)
 }
 
+//HttpClient实现
 type Request struct {
 	Headers      map[string]string
 	Method       string
@@ -64,6 +57,7 @@ type Request struct {
 	Port         string
 }
 
+//初始化请求对象
 func NewRequest() Request {
 	request := Request{
 		Headers: make(map[string]string),
@@ -74,13 +68,8 @@ func NewRequest() Request {
 	return request
 }
 
-func logError(err error) {
-	if err != nil {
-		log.Fatalln(err)
-	}
-}
-
 func (r *Request) doRequest() (string, error) {
+	//初始化http协议
 	httpProtocol := HttpProtocol{
 		Method:          r.Method,
 		Url:             "/",
@@ -88,23 +77,43 @@ func (r *Request) doRequest() (string, error) {
 		//Headers:         r.Headers,
 		Body: "",
 	}
-	splitUrl := strings.Split(r.Url, "://")
-	if splitUrl[0] == "http"{
-		r.Port = "80"
-	}else if splitUrl[0] == "https" {
-		r.Port = "443"
-	}else {
-		return "", &Error{
-			msg: "非http协议",
-		}
+
+	//读取body
+	if r.Body != nil {
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(r.Body)
+		body := buf.String()
+		httpProtocol.Body = body
 	}
-	url := strings.Split(splitUrl[1], "/")
+
+	var url []string
+	if strings.Index(r.Url, "://") > 0 {
+		//显示声名了协议 进行解析
+		splitUrl := strings.Split(r.Url, "://")
+		//解析协议 设置默认端口
+		if splitUrl[0] == "http" {
+			r.Port = "80"
+		} else if splitUrl[0] == "https" {
+			r.Port = "443"
+		} else {
+			return "", errors.New("非http协议")
+		}
+		url = strings.Split(splitUrl[1], "/")
+	} else {
+		//未声明协议 默认http协议
+		url = []string{r.Url}
+		r.Port = "80"
+	}
+
+	//设置header中的Host
 	r.SetHeader("Host", url[0])
 	portSplit := strings.Split(url[0], ":")
-	if len(portSplit) > 1{
+	if len(portSplit) > 1 {
+		//解析是否声名了端口
 		r.Port = portSplit[1]
 	}
 
+	//设置http协议中的的url
 	if len(url) > 1 {
 		for i, v := range url {
 			if i == 0 {
@@ -113,48 +122,36 @@ func (r *Request) doRequest() (string, error) {
 			httpProtocol.Url += v + "/"
 		}
 	}
-	if r.Body != nil {
-		//todo 转body的内容
 
-	}
 	httpProtocol.Headers = r.Headers
 	data := httpProtocol.toBytes()
-	println(string(data))
 	conn, err := net.Dial("tcp", r.Headers["Host"]+":"+r.Port)
 	defer conn.Close()
-	if err != nil{
+	if err != nil {
 		log.Fatal(err)
-		return "",err
+		return "", err
 	}
-	resultBytes := make([]byte, 0, 0)
+	//请求
 	conn.Write(data)
-	buf := make([]byte, 0, 1024)
-	len := 0
-	for true {
-		read, err := conn.Read(buf)
-		if read <= 0{
-			break
-		}
-		if err != nil{
-			log.Fatal(err)
-			break
-		}
-		len += read
-		BytesCombine(resultBytes,buf)
-		buf = make([]byte, 0, 1024)
-	}
 
-	if err != nil{
-		log.Fatal(err)
-		return "",err
+	//读取响应
+	buffer := new(bytes.Buffer)
+	read, err := io.Copy(buffer, conn)
+	println("copy :", read)
+	if err != nil {
+		return "", err
 	}
-	resp := string(resultBytes)
-	println(resp)
-	return resp,nil
-}
+	resp := string(buffer.Bytes())
 
-func BytesCombine(pBytes ...[]byte) []byte {
-	return bytes.Join(pBytes, []byte(""))
+	//解析状态 非200状态返回error
+	i := strings.Index(resp, "\r\n")
+	status := resp[:i]
+	err = nil
+	statusSplit := strings.Split(status, " ")
+	if statusSplit[1] != "200" {
+		err = errors.New(status)
+	}
+	return resp, err
 }
 
 func (r *Request) SetHeader(key, value string) {
@@ -167,11 +164,32 @@ func (r *Request) Get(url string) (string, error) {
 	return r.doRequest()
 }
 
+func (r *Request) Head(url string) error {
+	r.Method = "HEAD"
+	r.Url = url
+	_, err := r.doRequest()
+	return err
+}
+
+func (r *Request) Post(url string, body io.Reader) (string, error) {
+	r.Method = "POST"
+	r.Url = url
+	r.Body = body
+	return r.doRequest()
+}
+
 func main() {
+	//request := NewRequest()
+	//resp, err := request.Get("http://market.v8keji.cn/")
+	//println(resp)
+	//if err != nil{
+	//	println(err.Error())
+	//}
+
 	request := NewRequest()
-	resp, err := request.Get("http://www.baidu.com")
-	println(resp)
-	if err != nil{
-		println(err.Error())
+	err := request.Head("http://www.baidu.com/1")
+	if err != nil {
+		log.Fatal(err.Error())
 	}
+
 }
