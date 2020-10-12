@@ -178,6 +178,19 @@ func (r *Request) Post(url string, body io.Reader) (string, error) {
 	return r.doRequest()
 }
 
+func (r *Request) SetTimeout(timeout time.Duration) {
+	//todo
+
+}
+func (r *Request) SetWriteTimeout(timeout time.Duration) {
+	//todo
+
+}
+func (r *Request) SetReadTimeout(timeout time.Duration) {
+	//todo
+
+}
+
 func main() {
 	//request := NewRequest()
 	//resp, err := request.Get("http://market.v8keji.cn/")
